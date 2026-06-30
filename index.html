@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>AI社員組織 — 共有タスクボード (mobile)</title>
+<style>
+  :root {
+    --bg: #1e1f23; --panel: #2a2c32; --panel2: #32343b; --line: #3a3d45;
+    --text: #e6e7ea; --muted: #9aa0ab; --accent: #6aa3ff; --human: #f0a85c; --ai: #6aa3ff;
+    --done: #57b87a; --blocked: #d96d6d;
+    --p0: #d96d6d; --p1: #f0a85c; --p2: #9aa0ab;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  body { margin: 0; font-family: "Segoe UI", "Yu Gothic UI", system-ui, sans-serif;
+    background: var(--bg); color: var(--text); font-size: 15px; }
+  header { display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+    background: var(--panel); border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5; flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  button { background: var(--panel2); color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 13px; cursor: pointer; font-size: 14px; }
+  button:active { background: #3c3f47; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #0c1830; font-weight: 600; }
+  .status { font-size: 12px; color: var(--muted); width: 100%; }
+  /* タブ: 列を1つずつ表示（スマホ向け） */
+  .tabs { display: flex; gap: 6px; padding: 8px 12px; overflow-x: auto; background: var(--bg);
+    position: sticky; top: 49px; z-index: 4; border-bottom: 1px solid var(--line); }
+  .tab { white-space: nowrap; padding: 7px 12px; border-radius: 999px; border: 1px solid var(--line);
+    background: var(--panel); color: var(--muted); font-size: 13px; }
+  .tab.active { background: var(--accent); color: #0c1830; border-color: var(--accent); font-weight: 600; }
+  .tab .count { opacity: .8; }
+  .col-body { padding: 12px; }
+  .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+    padding: 12px; margin-bottom: 10px; }
+  .card .title { font-weight: 600; margin-bottom: 6px; line-height: 1.4; }
+  .card .meta { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+  .badge { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+  .badge.human { background: rgba(240,168,92,.18); color: var(--human); border: 1px solid rgba(240,168,92,.4); }
+  .badge.ai { background: rgba(106,163,255,.16); color: var(--ai); border: 1px solid rgba(106,163,255,.4); }
+  .badge.none { background: #3a3d45; color: var(--muted); }
+  .badge.p0 { background: rgba(217,109,109,.18); color: var(--p0); border: 1px solid rgba(217,109,109,.45); }
+  .badge.p1 { background: rgba(240,168,92,.16); color: var(--p1); border: 1px solid rgba(240,168,92,.4); }
+  .badge.p2 { background: #3a3d45; color: var(--p2); border: 1px solid var(--line); }
+  .card .desc { font-size: 13px; color: var(--text); margin-top: 8px; line-height: 1.45; }
+  .card .note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+  .card .id { font-size: 10px; color: #6b7280; }
+  .card-actions { margin-top: 10px; display: flex; gap: 8px; }
+  .approve-btn { flex: 1; background: rgba(87,184,122,.16); color: var(--done);
+    border: 1px solid rgba(87,184,122,.5); border-radius: 8px; padding: 9px 10px; font-weight: 600; }
+  .reject-btn { background: transparent; color: var(--muted); border: 1px solid var(--line);
+    border-radius: 8px; padding: 9px 12px; }
+  .add-btn { width: 100%; background: transparent; border: 1px dashed var(--line); color: var(--muted); padding: 11px; }
+  .empty { padding: 32px 18px; text-align: center; color: var(--muted); line-height: 1.8; }
+  .empty code { background: var(--panel2); padding: 2px 6px; border-radius: 4px; word-break: break-all; }
+  /* modal */
+  .overlay { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: none; align-items: flex-end; justify-content: center; z-index: 20; }
+  .overlay.open { display: flex; }
+  .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 14px 14px 0 0;
+    width: 100%; max-width: 560px; padding: 18px; max-height: 92vh; overflow-y: auto; }
+  .modal h3 { margin: 0 0 14px; font-size: 16px; }
+  .field { margin-bottom: 13px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .field input, .field select, .field textarea { width: 100%; background: var(--panel2); color: var(--text);
+    border: 1px solid var(--line); border-radius: 8px; padding: 11px; font-size: 15px; font-family: inherit; }
+  .field textarea { resize: vertical; min-height: 70px; }
+  .field .hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
+  .modal-actions { display: flex; gap: 8px; justify-content: space-between; margin-top: 16px; }
+  .modal-actions .right { display: flex; gap: 8px; }
+  button.danger { color: var(--blocked); border-color: rgba(217,109,109,.4); }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🗂️ 共有タスクボード</h1>
+  <span class="spacer"></span>
+  <button id="reloadBtn" title="最新を読み込む">↻</button>
+  <button id="settingsBtn" title="接続設定">⚙</button>
+  <span class="status" id="status">接続設定を開いてください</span>
+</header>
+
+<div class="tabs" id="tabs"></div>
+<div class="col-body" id="colBody"></div>
+
+<div id="emptyState" class="empty">
+  <p><strong>⚙ 接続設定</strong> を押して、GitHub トークンを入力してください。</p>
+  <p>スマホからクラウド上の <code>tools/board/board.json</code> を直接読み書きします。<br>
+  PCがOFFでも、AI社員が更新したボードを見られ、あなたの編集もクラウドへ保存されます。</p>
+</div>
+
+<!-- タスク編集モーダル -->
+<div class="overlay" id="overlay">
+  <div class="modal">
+    <h3 id="modalTitle">タスクを編集</h3>
+    <div class="field"><label>タイトル</label><input id="f_title" type="text" placeholder="やること"></div>
+    <div class="field"><label>状態</label><select id="f_status"></select></div>
+    <div class="field"><label>担当</label><select id="f_assignee"></select></div>
+    <div class="field"><label>優先度</label><select id="f_priority"></select></div>
+    <div class="field"><label>詳細 (description)</label><textarea id="f_desc" placeholder="タスクの内容・前提"></textarea></div>
+    <div class="field"><label>引き継ぎ (handover_notes)</label><textarea id="f_handover" placeholder="ここまでやった・次のアクション"></textarea></div>
+    <div class="modal-actions">
+      <button class="danger" id="deleteBtn">削除</button>
+      <div class="right">
+        <button id="cancelBtn">キャンセル</button>
+        <button class="primary" id="okBtn">保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 接続設定モーダル -->
+<div class="overlay" id="cfgOverlay">
+  <div class="modal">
+    <h3>接続設定（GitHub）</h3>
+    <div class="field"><label>Personal Access Token</label>
+      <input id="c_pat" type="password" placeholder="github_pat_...">
+      <div class="hint">Fine-grained PAT を推奨。対象リポジトリ＝<b>ai-org のみ</b>、権限＝<b>Contents: Read and write</b>。
+      トークンはこの端末のブラウザにのみ保存され、外部送信されません（GitHub APIへの認証にのみ使用）。</div>
+    </div>
+    <div class="field"><label>owner / repo</label>
+      <div style="display:flex; gap:8px;">
+        <input id="c_owner" type="text" placeholder="junchan614">
+        <input id="c_repo" type="text" placeholder="ai-org">
+      </div>
+    </div>
+    <div class="field"><label>branch</label><input id="c_branch" type="text" placeholder="main"></div>
+    <div class="field"><label>path</label><input id="c_path" type="text" placeholder="tools/board/board.json"></div>
+    <div class="modal-actions">
+      <button class="danger" id="cfgClearBtn">トークン削除</button>
+      <div class="right">
+        <button id="cfgCancelBtn">閉じる</button>
+        <button class="primary" id="cfgSaveBtn">保存して接続</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+let board = null;       // board.json
+let sha = null;         // 取得したファイルの sha（更新時に必要）
+let editingId = null;
+let activeCol = null;   // 表示中の列
+const $ = (id) => document.getElementById(id);
+const today = () => new Date().toISOString().slice(0, 10);
+const LS = "aiorg-board-cfg";
+
+function setStatus(m) { $("status").textContent = m; }
+
+function getCfg() {
+  try { return JSON.parse(localStorage.getItem(LS) || "{}"); } catch (e) { return {}; }
+}
+function cfgReady(c) { return c && c.pat && c.owner && c.repo && c.branch && c.path; }
+
+// ---- UTF-8 安全な base64 変換 ----
+function b64ToText(b64) {
+  const bin = atob(b64.replace(/\n/g, ""));
+  const bytes = Uint8Array.from(bin, (ch) => ch.charCodeAt(0));
+  return new TextDecoder("utf-8").decode(bytes);
+}
+function textToB64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let bin = "";
+  bytes.forEach((b) => { bin += String.fromCharCode(b); });
+  return btoa(bin);
+}
+
+function apiUrl(c) {
+  return `https://api.github.com/repos/${c.owner}/${c.repo}/contents/${c.path}`;
+}
+function headers(c) {
+  return { "Authorization": "Bearer " + c.pat, "Accept": "application/vnd.github+json",
+           "X-GitHub-Api-Version": "2022-11-28" };
+}
+
+async function loadBoard() {
+  const c = getCfg();
+  if (!cfgReady(c)) { openCfg(); return; }
+  setStatus("読み込み中…");
+  try {
+    const r = await fetch(apiUrl(c) + "?ref=" + encodeURIComponent(c.branch) + "&t=" + Date.now(),
+                          { headers: headers(c), cache: "no-store" });
+    if (!r.ok) { throw new Error(httpMsg(r.status)); }
+    const data = await r.json();
+    sha = data.sha;
+    board = JSON.parse(b64ToText(data.content));
+    if (!activeCol || !board.columns.includes(activeCol)) { activeCol = board.columns[0]; }
+    setStatus("読み込み完了 — " + new Date().toLocaleTimeString("ja-JP"));
+    render();
+  } catch (e) { setStatus("読み込み失敗: " + e.message); }
+}
+
+async function saveBoard(silent) {
+  const c = getCfg();
+  if (!board || !cfgReady(c)) { return; }
+  board.updated = today();
+  const json = JSON.stringify(board, null, 2) + "\n";
+  if (!silent) { setStatus("保存中…"); }
+  try {
+    const r = await fetch(apiUrl(c), {
+      method: "PUT", headers: headers(c),
+      body: JSON.stringify({
+        message: "chore(board): mobile編集 " + today() + " [skip ci]",
+        content: textToB64(json), sha: sha, branch: c.branch,
+      }),
+    });
+    if (r.status === 409) { setStatus("⚠ 競合: 他で更新されました。↻ で再読み込みしてからやり直してください。"); return; }
+    if (!r.ok) { throw new Error(httpMsg(r.status)); }
+    const data = await r.json();
+    sha = data.content.sha;   // 次の保存のため sha を更新
+    if (!silent) { setStatus("保存しました — " + new Date().toLocaleTimeString("ja-JP")); }
+  } catch (e) { setStatus("保存失敗: " + e.message); }
+}
+
+function httpMsg(s) {
+  if (s === 401) { return "認証エラー(401) — トークンを確認してください"; }
+  if (s === 403) { return "権限エラー(403) — Contents:Read/Write 権限とリポジトリ指定を確認"; }
+  if (s === 404) { return "見つからない(404) — owner/repo/branch/path を確認"; }
+  return "HTTP " + s;
+}
+
+// ---- 描画 ----
+function memberLabel(key) { const m = (board.members || []).find((x) => x.key === key); return m ? m.label : key; }
+function memberKind(key) { const m = (board.members || []).find((x) => x.key === key); return m ? m.kind : "none"; }
+function priorityList() { return board.priorities || ["P0", "P1", "P2"]; }
+function handoverOf(t) { return t.handover_notes != null ? t.handover_notes : (t.note || ""); }
+
+function render() {
+  $("emptyState").style.display = board ? "none" : "block";
+  $("tabs").innerHTML = "";
+  $("colBody").innerHTML = "";
+  if (!board) { return; }
+
+  board.columns.forEach((col) => {
+    const n = board.tasks.filter((t) => t.status === col).length;
+    const tab = document.createElement("div");
+    tab.className = "tab" + (col === activeCol ? " active" : "");
+    tab.innerHTML = `${col} <span class="count">${n}</span>`;
+    tab.onclick = () => { activeCol = col; render(); };
+    $("tabs").appendChild(tab);
+  });
+
+  const tasks = board.tasks.filter((t) => t.status === activeCol);
+  tasks.forEach((t) => $("colBody").appendChild(cardEl(t)));
+
+  const addBtn = document.createElement("button");
+  addBtn.className = "add-btn"; addBtn.textContent = "+ このリストに追加";
+  addBtn.onclick = () => openModal(null, activeCol);
+  $("colBody").appendChild(addBtn);
+}
+
+function cardEl(t) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const kind = memberKind(t.assignee);
+  el.innerHTML = `
+    <div class="title"></div>
+    <div class="meta">
+      ${t.priority ? `<span class="badge ${t.priority.toLowerCase()}">${t.priority}</span>` : ""}
+      <span class="badge ${kind}">${memberLabel(t.assignee)}</span>
+      <span class="id">${t.id}</span>
+    </div>
+    ${t.description ? `<div class="desc"></div>` : ""}
+    ${handoverOf(t) ? `<div class="note"></div>` : ""}
+    ${t.status === "REVIEW" ? `<div class="card-actions">
+      <button class="approve-btn">✓ 承認 → DONE</button>
+      <button class="reject-btn">↩ 差し戻し</button>
+    </div>` : ""}`;
+  el.querySelector(".title").textContent = t.title;
+  if (t.description) { el.querySelector(".desc").textContent = t.description; }
+  if (handoverOf(t)) { el.querySelector(".note").textContent = "↳ " + handoverOf(t); }
+  if (t.status === "REVIEW") {
+    el.querySelector(".approve-btn").addEventListener("click", (e) => { e.stopPropagation(); approveTask(t.id); });
+    el.querySelector(".reject-btn").addEventListener("click", (e) => { e.stopPropagation(); rejectTask(t.id); });
+  }
+  el.addEventListener("click", () => openModal(t.id, t.status));
+  return el;
+}
+
+function approveTask(id) {
+  const t = board.tasks.find((x) => x.id === id);
+  if (!t || !confirm(`「${t.title}」を承認して DONE にしますか？`)) { return; }
+  t.status = "DONE"; t.updatedBy = "Junpei"; t.updatedAt = today();
+  saveBoard(true); render(); setStatus(`✓ 承認: ${t.id} → DONE`);
+}
+function rejectTask(id) {
+  const t = board.tasks.find((x) => x.id === id);
+  if (!t) { return; }
+  const reason = prompt(`「${t.title}」を差し戻します。直してほしい点（任意）:`, "");
+  if (reason === null) { return; }
+  t.status = "DOING";
+  if (reason.trim()) { t.handover_notes = `[差し戻し ${today()}] ${reason.trim()}\n` + handoverOf(t); }
+  t.updatedBy = "Junpei"; t.updatedAt = today();
+  saveBoard(true); render(); setStatus(`↩ 差し戻し: ${t.id} → DOING`);
+}
+
+// ---- モーダル ----
+function fillSelect(sel, items, current) {
+  sel.innerHTML = "";
+  items.forEach((it) => {
+    const o = document.createElement("option");
+    o.value = it.value; o.textContent = it.label;
+    if (it.value === current) { o.selected = true; }
+    sel.appendChild(o);
+  });
+}
+function openModal(id, defaultStatus) {
+  editingId = id;
+  const t = id ? board.tasks.find((x) => x.id === id) : null;
+  $("modalTitle").textContent = id ? "タスクを編集" : "タスクを追加";
+  $("f_title").value = t ? t.title : "";
+  $("f_desc").value = t ? (t.description || "") : "";
+  $("f_handover").value = t ? handoverOf(t) : "";
+  fillSelect($("f_status"), board.columns.map((c) => ({ value: c, label: c })), t ? t.status : defaultStatus);
+  fillSelect($("f_assignee"), (board.members || []).map((m) => ({ value: m.key, label: m.label })), t ? t.assignee : "-");
+  fillSelect($("f_priority"), priorityList().map((p) => ({ value: p, label: p })), t ? t.priority : "P1");
+  $("deleteBtn").style.display = id ? "block" : "none";
+  $("overlay").classList.add("open");
+}
+function closeModal() { $("overlay").classList.remove("open"); editingId = null; }
+function saveModal() {
+  const title = $("f_title").value.trim();
+  if (!title) { $("f_title").focus(); return; }
+  if (editingId) {
+    const t = board.tasks.find((x) => x.id === editingId);
+    t.title = title; t.status = $("f_status").value; t.assignee = $("f_assignee").value;
+    t.priority = $("f_priority").value; t.description = $("f_desc").value.trim();
+    t.handover_notes = $("f_handover").value.trim(); delete t.note;
+    t.updatedBy = "Junpei"; t.updatedAt = today();
+    activeCol = t.status;
+  } else {
+    const id = "T" + (board.nextId || (board.tasks.length + 1));
+    board.nextId = (board.nextId || board.tasks.length + 1) + 1;
+    const st = $("f_status").value;
+    board.tasks.push({ id, title, status: st, assignee: $("f_assignee").value,
+      priority: $("f_priority").value, description: $("f_desc").value.trim(),
+      handover_notes: $("f_handover").value.trim(), updatedBy: "Junpei", updatedAt: today() });
+    activeCol = st;
+  }
+  closeModal(); saveBoard(true); render();
+}
+function deleteTask() {
+  if (!editingId || !confirm("このタスクを削除しますか？")) { return; }
+  board.tasks = board.tasks.filter((x) => x.id !== editingId);
+  closeModal(); saveBoard(true); render();
+}
+
+// ---- 接続設定 ----
+function openCfg() {
+  const c = getCfg();
+  $("c_pat").value = c.pat || "";
+  $("c_owner").value = c.owner || "junchan614";
+  $("c_repo").value = c.repo || "ai-org";
+  $("c_branch").value = c.branch || "main";
+  $("c_path").value = c.path || "tools/board/board.json";
+  $("cfgOverlay").classList.add("open");
+}
+function closeCfg() { $("cfgOverlay").classList.remove("open"); }
+function saveCfg() {
+  const c = { pat: $("c_pat").value.trim(), owner: $("c_owner").value.trim(),
+    repo: $("c_repo").value.trim(), branch: $("c_branch").value.trim() || "main",
+    path: $("c_path").value.trim() || "tools/board/board.json" };
+  localStorage.setItem(LS, JSON.stringify(c));
+  closeCfg(); loadBoard();
+}
+function clearCfg() {
+  if (!confirm("保存したトークンと設定を削除しますか？")) { return; }
+  localStorage.removeItem(LS); board = null; sha = null;
+  closeCfg(); render(); setStatus("設定を削除しました");
+}
+
+// ---- イベント ----
+$("reloadBtn").onclick = loadBoard;
+$("settingsBtn").onclick = openCfg;
+$("okBtn").onclick = saveModal;
+$("cancelBtn").onclick = closeModal;
+$("deleteBtn").onclick = deleteTask;
+$("overlay").addEventListener("click", (e) => { if (e.target === $("overlay")) { closeModal(); } });
+$("cfgSaveBtn").onclick = saveCfg;
+$("cfgCancelBtn").onclick = closeCfg;
+$("cfgClearBtn").onclick = clearCfg;
+$("cfgOverlay").addEventListener("click", (e) => { if (e.target === $("cfgOverlay")) { closeCfg(); } });
+
+// 起動時: 設定済みなら自動ロード
+if (cfgReady(getCfg())) { loadBoard(); } else { openCfg(); }
+</script>
+</body>
+</html>
