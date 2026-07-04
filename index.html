@@ -42,9 +42,15 @@
   .badge.p0 { background: rgba(217,109,109,.18); color: var(--p0); border: 1px solid rgba(217,109,109,.45); }
   .badge.p1 { background: rgba(240,168,92,.16); color: var(--p1); border: 1px solid rgba(240,168,92,.4); }
   .badge.p2 { background: #3a3d45; color: var(--p2); border: 1px solid var(--line); }
-  .card .desc { font-size: 13px; color: var(--text); margin-top: 8px; line-height: 1.45; }
-  .card .note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; }
+  .card .desc { font-size: 13px; color: var(--text); margin-top: 8px; line-height: 1.45; white-space: pre-wrap; }
+  .card .note { font-size: 13px; color: var(--muted); margin-top: 6px; line-height: 1.45; white-space: pre-wrap; }
   .card .id { font-size: 10px; color: #6b7280; }
+  .card .dlinks { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 9px; }
+  .card .dlinks a { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; font-weight: 600;
+    color: var(--accent); background: rgba(106,163,255,.12); border: 1px solid rgba(106,163,255,.35);
+    border-radius: 999px; padding: 6px 11px; text-decoration: none; max-width: 100%; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap; }
+  .desc a, .note a { color: var(--accent); word-break: break-all; }
   .card-actions { margin-top: 10px; display: flex; gap: 8px; }
   .approve-btn { flex: 1; background: rgba(87,184,122,.16); color: var(--done);
     border: 1px solid rgba(87,184,122,.5); border-radius: 8px; padding: 9px 10px; font-weight: 600; }
@@ -62,8 +68,9 @@
   .field { margin-bottom: 13px; }
   .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
   .field input, .field select, .field textarea { width: 100%; background: var(--panel2); color: var(--text);
-    border: 1px solid var(--line); border-radius: 8px; padding: 11px; font-size: 15px; font-family: inherit; }
+    border: 1px solid var(--line); border-radius: 8px; padding: 11px; font-size: 15px; font-family: inherit; line-height: 1.5; }
   .field textarea { resize: vertical; min-height: 70px; }
+  .field textarea.tall { min-height: 180px; }
   .field .hint { font-size: 11px; color: var(--muted); margin-top: 4px; line-height: 1.5; }
   .modal-actions { display: flex; gap: 8px; justify-content: space-between; margin-top: 16px; }
   .modal-actions .right { display: flex; gap: 8px; }
@@ -97,8 +104,15 @@
     <div class="field"><label>状態</label><select id="f_status"></select></div>
     <div class="field"><label>担当</label><select id="f_assignee"></select></div>
     <div class="field"><label>優先度</label><select id="f_priority"></select></div>
-    <div class="field"><label>詳細 (description)</label><textarea id="f_desc" placeholder="タスクの内容・前提"></textarea></div>
-    <div class="field"><label>引き継ぎ (handover_notes)</label><textarea id="f_handover" placeholder="ここまでやった・次のアクション"></textarea></div>
+    <div class="field" style="display:flex; align-items:center; gap:8px;">
+      <input id="f_auto" type="checkbox" style="width:auto;">
+      <label for="f_auto" style="margin:0;">🤖 自動実行を許可（TODOにするとクラウドのAIが着手）</label>
+    </div>
+    <div class="field"><label>詳細 (description)</label><textarea id="f_desc" class="tall" placeholder="タスクの内容・前提"></textarea></div>
+    <div class="field"><label>引き継ぎ (handover_notes)</label><textarea id="f_handover" class="tall" placeholder="ここまでやった・次のアクション"></textarea></div>
+    <div class="field"><label>成果物リンク (deliverables)</label><textarea id="f_deliverables" placeholder="1行に1つ。「ラベル: URL」または URL のみ"></textarea>
+      <div class="hint">例: 設計ドキュメント: https://github.com/junchan614/ai-org/blob/main/board/xxx.md</div>
+    </div>
     <div class="modal-actions">
       <button class="danger" id="deleteBtn">削除</button>
       <div class="right">
@@ -226,6 +240,29 @@ function memberKind(key) { const m = (board.members || []).find((x) => x.key ===
 function priorityList() { return board.priorities || ["P0", "P1", "P2"]; }
 function handoverOf(t) { return t.handover_notes != null ? t.handover_notes : (t.note || ""); }
 
+// --- deliverables (成果物リンク) ---
+function deliverablesOf(t) {
+  return (t.deliverables || []).map((d) => (typeof d === "string" ? { label: d, url: d } : d))
+    .filter((d) => d && d.url);
+}
+function deliverablesToText(list) {
+  return (list || []).map((d) => (d.label && d.label !== d.url ? `${d.label}: ${d.url}` : d.url)).join("\n");
+}
+function textToDeliverables(text) {
+  return text.split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+    const m = line.match(/^(.+?):\s*(https?:\/\/\S+)$/) || line.match(/^(.+?):\s*(\S+)$/);
+    if (m && /^https?:\/\//.test(m[2])) { return { label: m[1].trim(), url: m[2].trim() }; }
+    return { label: line, url: line };
+  });
+}
+function escapeHtml(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function linkify(text) {
+  const esc = escapeHtml(text);
+  return esc.replace(/https?:\/\/[^\s<]+/g, (url) => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
+}
+
 function render() {
   $("emptyState").style.display = board ? "none" : "block";
   $("tabs").innerHTML = "";
@@ -259,17 +296,28 @@ function cardEl(t) {
     <div class="meta">
       ${t.priority ? `<span class="badge ${t.priority.toLowerCase()}">${t.priority}</span>` : ""}
       <span class="badge ${kind}">${memberLabel(t.assignee)}</span>
+      ${t.auto ? `<span class="badge ai" title="自動実行許可">🤖 auto</span>` : ""}
       <span class="id">${t.id}</span>
     </div>
     ${t.description ? `<div class="desc"></div>` : ""}
     ${handoverOf(t) ? `<div class="note"></div>` : ""}
+    ${deliverablesOf(t).length ? `<div class="dlinks"></div>` : ""}
     ${t.status === "REVIEW" ? `<div class="card-actions">
       <button class="approve-btn">✓ 承認 → DONE</button>
       <button class="reject-btn">↩ 差し戻し</button>
     </div>` : ""}`;
   el.querySelector(".title").textContent = t.title;
-  if (t.description) { el.querySelector(".desc").textContent = t.description; }
-  if (handoverOf(t)) { el.querySelector(".note").textContent = "↳ " + handoverOf(t); }
+  if (t.description) { el.querySelector(".desc").innerHTML = linkify(t.description); }
+  if (handoverOf(t)) { el.querySelector(".note").innerHTML = "↳ " + linkify(handoverOf(t)); }
+  if (deliverablesOf(t).length) {
+    const row = el.querySelector(".dlinks");
+    deliverablesOf(t).forEach((d) => {
+      const a = document.createElement("a");
+      a.href = d.url; a.target = "_blank"; a.rel = "noopener"; a.textContent = "🔗 " + (d.label || d.url);
+      a.addEventListener("click", (e) => e.stopPropagation());
+      row.appendChild(a);
+    });
+  }
   if (t.status === "REVIEW") {
     el.querySelector(".approve-btn").addEventListener("click", (e) => { e.stopPropagation(); approveTask(t.id); });
     el.querySelector(".reject-btn").addEventListener("click", (e) => { e.stopPropagation(); rejectTask(t.id); });
@@ -312,9 +360,11 @@ function openModal(id, defaultStatus) {
   $("f_title").value = t ? t.title : "";
   $("f_desc").value = t ? (t.description || "") : "";
   $("f_handover").value = t ? handoverOf(t) : "";
+  $("f_deliverables").value = t ? deliverablesToText(deliverablesOf(t)) : "";
   fillSelect($("f_status"), board.columns.map((c) => ({ value: c, label: c })), t ? t.status : defaultStatus);
   fillSelect($("f_assignee"), (board.members || []).map((m) => ({ value: m.key, label: m.label })), t ? t.assignee : "-");
   fillSelect($("f_priority"), priorityList().map((p) => ({ value: p, label: p })), t ? t.priority : "P1");
+  $("f_auto").checked = t ? !!t.auto : false;
   $("deleteBtn").style.display = id ? "block" : "none";
   $("overlay").classList.add("open");
 }
@@ -327,6 +377,8 @@ function saveModal() {
     t.title = title; t.status = $("f_status").value; t.assignee = $("f_assignee").value;
     t.priority = $("f_priority").value; t.description = $("f_desc").value.trim();
     t.handover_notes = $("f_handover").value.trim(); delete t.note;
+    t.deliverables = textToDeliverables($("f_deliverables").value);
+    t.auto = $("f_auto").checked;
     t.updatedBy = "Junpei"; t.updatedAt = today();
     activeCol = t.status;
   } else {
@@ -335,7 +387,9 @@ function saveModal() {
     const st = $("f_status").value;
     board.tasks.push({ id, title, status: st, assignee: $("f_assignee").value,
       priority: $("f_priority").value, description: $("f_desc").value.trim(),
-      handover_notes: $("f_handover").value.trim(), updatedBy: "Junpei", updatedAt: today() });
+      handover_notes: $("f_handover").value.trim(), deliverables: textToDeliverables($("f_deliverables").value),
+      auto: $("f_auto").checked,
+      updatedBy: "Junpei", updatedAt: today() });
     activeCol = st;
   }
   closeModal(); saveBoard(true); render();
