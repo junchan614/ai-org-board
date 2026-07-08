@@ -328,9 +328,13 @@ function cardEl(t) {
 
 function approveTask(id) {
   const t = board.tasks.find((x) => x.id === id);
-  if (!t || !confirm(`「${t.title}」を承認して DONE にしますか？`)) { return; }
-  t.status = "DONE"; t.updatedBy = "Junpei"; t.updatedAt = today();
-  saveBoard(true); render(); setStatus(`✓ 承認: ${t.id} → DONE`);
+  if (!t) { return; }
+  const note = prompt(`「${t.title}」を承認して DONE にします。条件付き承認の場合は条件・コメントを（空欄なら通常承認）:`, "");
+  if (note === null) { return; }
+  t.status = "DONE";
+  if (note.trim()) { t.handover_notes = `[条件付き承認 ${today()}] ${note.trim()}\n` + handoverOf(t); }
+  t.updatedBy = "Junpei"; t.updatedAt = today();
+  saveBoard(true); render(); setStatus(note.trim() ? `✓ 条件付き承認: ${t.id} → DONE` : `✓ 承認: ${t.id} → DONE`);
 }
 function rejectTask(id) {
   const t = board.tasks.find((x) => x.id === id);
