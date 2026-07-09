@@ -82,6 +82,9 @@
 <header>
   <h1>🗂️ 共有タスクボード</h1>
   <span class="spacer"></span>
+  <select id="filterSelect" style="background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:9px 8px; font-size:13px;">
+    <option value="">担当: すべて</option>
+  </select>
   <button id="reloadBtn" title="最新を読み込む">↻</button>
   <button id="settingsBtn" title="接続設定">⚙</button>
   <span class="status" id="status">接続設定を開いてください</span>
@@ -159,6 +162,8 @@ let activeCol = null;   // 表示中の列
 const $ = (id) => document.getElementById(id);
 const today = () => new Date().toISOString().slice(0, 10);
 const LS = "aiorg-board-cfg";
+const LS_FILTER = "aiorg-board-filter";
+let filterAssignee = localStorage.getItem(LS_FILTER) || ""; // "" = すべて
 
 function setStatus(m) { $("status").textContent = m; }
 
@@ -269,8 +274,11 @@ function render() {
   $("colBody").innerHTML = "";
   if (!board) { return; }
 
+  fillSelect($("filterSelect"), [{ value: "", label: "担当: すべて" }].concat(
+    (board.members || []).map((m) => ({ value: m.key, label: m.label }))), filterAssignee);
+
   board.columns.forEach((col) => {
-    const n = board.tasks.filter((t) => t.status === col).length;
+    const n = board.tasks.filter((t) => t.status === col && (!filterAssignee || t.assignee === filterAssignee)).length;
     const tab = document.createElement("div");
     tab.className = "tab" + (col === activeCol ? " active" : "");
     tab.innerHTML = `${col} <span class="count">${n}</span>`;
@@ -278,7 +286,7 @@ function render() {
     $("tabs").appendChild(tab);
   });
 
-  const tasks = board.tasks.filter((t) => t.status === activeCol);
+  const tasks = board.tasks.filter((t) => t.status === activeCol && (!filterAssignee || t.assignee === filterAssignee));
   tasks.forEach((t) => $("colBody").appendChild(cardEl(t)));
 
   const addBtn = document.createElement("button");
@@ -429,6 +437,11 @@ function clearCfg() {
 }
 
 // ---- イベント ----
+$("filterSelect").onchange = (e) => {
+  filterAssignee = e.target.value;
+  localStorage.setItem(LS_FILTER, filterAssignee);
+  render();
+};
 $("reloadBtn").onclick = loadBoard;
 $("settingsBtn").onclick = openCfg;
 $("okBtn").onclick = saveModal;
