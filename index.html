@@ -275,6 +275,29 @@ function linkify(text) {
   return esc.replace(/https?:\/\/[^\s<]+/g, (url) => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
 }
 
+// assignee(=作業した部門)とは別に「今アクションすべき人」を判定する。
+// REVIEW=Junpeiのレビュー待ち、BLOCKEDの承認待ち=Junpeiの判断待ち(CLAUDE.md §3/§9-3)なので、
+// 担当が部門(content等)のままでも「あなたの番」として扱う。
+function isJunpeisTurn(t) {
+  if (t.status === "REVIEW") { return true; }
+  if (t.status === "BLOCKED" && /^承認待ち/.test(handoverOf(t))) { return true; }
+  return false;
+}
+// 承認ボタンを押した時の遷移先。REVIEW=DONE。BLOCKED(承認待ち)は
+// proposal(企画書)カード=それ自体が承認対象で他に作業が残らないのでDONE、
+// それ以外(依存/判断待ちのまま進行するタスク)はブロック解除としてTODOに戻す。
+function approveTargetStatus(t) {
+  if (t.status === "REVIEW") { return "DONE"; }
+  if (t.status === "BLOCKED") { return t.proposal ? "DONE" : "TODO"; }
+  return null;
+}
+function matchesAssigneeFilter(t) {
+  if (!filterAssignee) { return true; }
+  if (t.assignee === filterAssignee) { return true; }
+  if (filterAssignee === "Junpei" && isJunpeisTurn(t)) { return true; }
+  return false;
+}
+
 // [T67] / T67 / 67 いずれの入力でもID一致させ、なければタイトル・本文・引き継ぎを部分一致で見る
 function matchesSearch(t) {
   const q = searchQuery.trim().toLowerCase().replace(/[\[\]]/g, "");
@@ -297,7 +320,7 @@ function render() {
     (board.members || []).map((m) => ({ value: m.key, label: m.label }))), filterAssignee);
 
   board.columns.forEach((col) => {
-    const n = board.tasks.filter((t) => t.status === col && (!filterAssignee || t.assignee === filterAssignee) && matchesSearch(t)).length;
+    const n = board.tasks.filter((t) => t.status === col && matchesAssigneeFilter(t) && matchesSearch(t)).length;
     const tab = document.createElement("div");
     tab.className = "tab" + (col === activeCol ? " active" : "");
     tab.innerHTML = `${col} <span class="count">${n}</span>`;
@@ -305,7 +328,7 @@ function render() {
     $("tabs").appendChild(tab);
   });
 
-  const tasks = board.tasks.filter((t) => t.status === activeCol && (!filterAssignee || t.assignee === filterAssignee) && matchesSearch(t));
+  const tasks = board.tasks.filter((t) => t.status === activeCol && matchesAssigneeFilter(t) && matchesSearch(t));
   tasks.forEach((t) => $("colBody").appendChild(cardEl(t)));
 
   const addBtn = document.createElement("button");
@@ -318,20 +341,24 @@ function cardEl(t) {
   const el = document.createElement("div");
   el.className = "card";
   const kind = memberKind(t.assignee);
+  const showsAsJunpeisTurn = t.assignee !== "Junpei" && isJunpeisTurn(t);
+  const junpeisTurn = isJunpeisTurn(t);
+  const approveTarget = approveTargetStatus(t);
   el.innerHTML = `
     <div class="title"></div>
     <div class="meta">
       ${t.priority ? `<span class="badge ${t.priority.toLowerCase()}">${t.priority}</span>` : ""}
       <span class="badge ${kind}">${memberLabel(t.assignee)}</span>
       ${t.auto ? `<span class="badge ai" title="自動実行許可">🤖 auto</span>` : ""}
+      ${showsAsJunpeisTurn ? `<span class="badge human" title="担当は${memberLabel(t.assignee)}だが、今はJunpeiの番">👀 あなたの番</span>` : ""}
       <span class="id">${t.id}</span>
     </div>
     ${t.description ? `<div class="desc"></div>` : ""}
     ${handoverOf(t) ? `<div class="note"></div>` : ""}
     ${deliverablesOf(t).length ? `<div class="dlinks"></div>` : ""}
-    ${t.status === "REVIEW" ? `<div class="card-actions">
-      <button class="approve-btn">✓ 承認 → DONE</button>
-      <button class="reject-btn">↩ 差し戻し</button>
+    ${junpeisTurn ? `<div class="card-actions">
+      <button class="approve-btn">✓ 承認 → ${approveTarget}</button>
+      <button class="reject-btn">${t.status === "REVIEW" ? "↩ 差し戻し" : "✎ コメント"}</button>
     </div>` : ""}`;
   el.querySelector(".title").textContent = t.title;
   if (t.description) { el.querySelector(".desc").innerHTML = linkify(t.description); }
@@ -345,7 +372,7 @@ function cardEl(t) {
       row.appendChild(a);
     });
   }
-  if (t.status === "REVIEW") {
+  if (junpeisTurn) {
     el.querySelector(".approve-btn").addEventListener("click", (e) => { e.stopPropagation(); approveTask(t.id); });
     el.querySelector(".reject-btn").addEventListener("click", (e) => { e.stopPropagation(); rejectTask(t.id); });
   }
@@ -356,16 +383,26 @@ function cardEl(t) {
 function approveTask(id) {
   const t = board.tasks.find((x) => x.id === id);
   if (!t) { return; }
-  const note = prompt(`「${t.title}」を承認して DONE にします。条件付き承認の場合は条件・コメントを（空欄なら通常承認）:`, "");
+  const target = approveTargetStatus(t);
+  if (!target) { return; }
+  const note = prompt(`「${t.title}」を承認して ${target} にします。条件付き承認の場合は条件・コメントを（空欄なら通常承認）:`, "");
   if (note === null) { return; }
-  t.status = "DONE";
+  t.status = target;
   if (note.trim()) { t.handover_notes = `[条件付き承認 ${today()}] ${note.trim()}\n` + handoverOf(t); }
   t.updatedBy = "Junpei"; t.updatedAt = today();
-  saveBoard(true); render(); setStatus(note.trim() ? `✓ 条件付き承認: ${t.id} → DONE` : `✓ 承認: ${t.id} → DONE`);
+  saveBoard(true); render(); setStatus(note.trim() ? `✓ 条件付き承認: ${t.id} → ${target}` : `✓ 承認: ${t.id} → ${target}`);
 }
 function rejectTask(id) {
   const t = board.tasks.find((x) => x.id === id);
   if (!t) { return; }
+  if (t.status !== "REVIEW") {
+    const comment = prompt(`「${t.title}」にコメント・回答を追記します（承認待ちのまま残ります）:`, "");
+    if (comment === null || !comment.trim()) { return; }
+    t.handover_notes = `[コメント ${today()}] ${comment.trim()}\n` + handoverOf(t);
+    t.updatedBy = "Junpei"; t.updatedAt = today();
+    saveBoard(true); render(); setStatus(`✎ コメントを追加しました: ${t.id}`);
+    return;
+  }
   const reason = prompt(`「${t.title}」を差し戻します。直してほしい点（任意）:`, "");
   if (reason === null) { return; }
   t.status = "DOING";
