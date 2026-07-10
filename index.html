@@ -51,6 +51,13 @@
     border-radius: 999px; padding: 6px 11px; text-decoration: none; max-width: 100%; overflow: hidden;
     text-overflow: ellipsis; white-space: nowrap; }
   .desc a, .note a { color: var(--accent); word-break: break-all; }
+  .deps { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; margin-top: 8px; font-size: 12px; }
+  .deps-label { color: var(--muted); margin-right: 2px; }
+  .dep-chip { background: var(--panel2); border: 1px solid var(--line); color: var(--text);
+    border-radius: 999px; padding: 4px 10px; font-size: 12px; font-family: inherit; }
+  .dep-chip.done { opacity: .55; text-decoration: line-through; }
+  .dep-chip.missing { border-style: dashed; color: var(--muted); }
+  #depsView .deps { margin-top: 0; }
   .card-actions { margin-top: 10px; display: flex; gap: 8px; }
   .approve-btn { flex: 1; background: rgba(87,184,122,.16); color: var(--done);
     border: 1px solid rgba(87,184,122,.5); border-radius: 8px; padding: 9px 10px; font-weight: 600; }
@@ -118,6 +125,10 @@
     <div class="field"><label>成果物リンク (deliverables)</label><textarea id="f_deliverables" placeholder="1行に1つ。「ラベル: URL」または URL のみ"></textarea>
       <div class="hint">例: 設計ドキュメント: https://github.com/junchan614/ai-org/blob/main/board/xxx.md</div>
     </div>
+    <div class="field" id="depsField" style="display:none;">
+      <label>依存関係（引き継ぎメモの「依存:T◯」から自動抽出。タップでそのタスクへ移動）</label>
+      <div id="depsView"></div>
+    </div>
     <div class="modal-actions">
       <div>
         <button class="danger" id="deleteBtn">削除</button>
@@ -171,6 +182,7 @@ const LS_FILTER = "aiorg-board-filter";
 const LS_SEARCH = "aiorg-board-search";
 let filterAssignee = localStorage.getItem(LS_FILTER) || ""; // "" = すべて
 let searchQuery = localStorage.getItem(LS_SEARCH) || ""; // "" = 検索なし
+let dependentsMap = {}; // { タスクID: [そのタスクを待っている(依存元)タスクIDの配列] } render()毎に再構築
 
 function setStatus(m) { $("status").textContent = m; }
 
@@ -298,6 +310,58 @@ function matchesAssigneeFilter(t) {
   return false;
 }
 
+// ---- 依存関係 ----
+// handover_notesの「依存:T19」「依存:T56(...),T66(...)」等からT番号を抽出。
+// 「依存:特になし」のようにT番号が続かない場合は依存なし(空配列)として扱う。
+// 「。」(句点)までを1つの依存節とみなし、それより後ろの本文中のT言及は拾わない。
+function dependsOn(t) {
+  const text = handoverOf(t);
+  const ids = new Set();
+  const clauseRe = /依存[:：]([^。]*)/g;
+  let m;
+  while ((m = clauseRe.exec(text))) {
+    const idRe = /T(\d+)/g;
+    let im;
+    while ((im = idRe.exec(m[1]))) { ids.add("T" + im[1]); }
+  }
+  return Array.from(ids);
+}
+// 全タスクを走査し、「誰が誰を待っているか」の逆引き(依存元)マップを作る。
+// 例: T59が依存:T56 なら dependentsMap["T56"] に "T59" が入る(=T56が終わればT59が動ける)。
+function buildDependentsMap() {
+  const map = {};
+  (board.tasks || []).forEach((t) => {
+    dependsOn(t).forEach((depId) => {
+      (map[depId] || (map[depId] = [])).push(t.id);
+    });
+  });
+  return map;
+}
+// 依存チップ(タップでジャンプ)を1個作る。kind="dep"は依存先(自分が待っている側)で、
+// 参照先がDONEなら解消済みとして薄く打ち消し線をつける。verbose=trueならタイトルも表示(モーダル用)。
+function depChip(id, kind, verbose) {
+  const dep = board.tasks.find((x) => x.id === id);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  const isResolved = kind === "dep" && dep && dep.status === "DONE";
+  btn.className = "dep-chip" + (isResolved ? " done" : "") + (dep ? "" : " missing");
+  const titleText = dep ? dep.title : "(見つかりません)";
+  btn.textContent = verbose ? `${id}: ${titleText}` : id;
+  btn.title = dep ? `[${dep.status}] ${dep.title}` : "参照先タスクが見つかりません";
+  btn.addEventListener("click", (e) => { e.stopPropagation(); jumpToTask(id); });
+  return btn;
+}
+// 依存チップから別タスクへジャンプする。開いていたモーダルは閉じ、検索欄をそのIDに絞って開き直す。
+function jumpToTask(id) {
+  const t = board.tasks.find((x) => x.id === id);
+  if (!t) { setStatus("タスクが見つかりません: " + id); return; }
+  closeModal();
+  activeCol = t.status;
+  searchQuery = t.id; $("searchInput").value = t.id; localStorage.setItem(LS_SEARCH, t.id);
+  render();
+  openModal(t.id, t.status);
+}
+
 // [T67] / T67 / 67 いずれの入力でもID一致させ、なければタイトル・本文・引き継ぎを部分一致で見る
 function matchesSearch(t) {
   const q = searchQuery.trim().toLowerCase().replace(/[\[\]]/g, "");
@@ -315,6 +379,7 @@ function render() {
   $("tabs").innerHTML = "";
   $("colBody").innerHTML = "";
   if (!board) { return; }
+  dependentsMap = buildDependentsMap();
 
   fillSelect($("filterSelect"), [{ value: "", label: "担当: すべて" }].concat(
     (board.members || []).map((m) => ({ value: m.key, label: m.label }))), filterAssignee);
@@ -344,6 +409,8 @@ function cardEl(t) {
   const showsAsJunpeisTurn = t.assignee !== "Junpei" && isJunpeisTurn(t);
   const junpeisTurn = isJunpeisTurn(t);
   const approveTarget = approveTargetStatus(t);
+  const depIds = dependsOn(t);
+  const dependentIds = dependentsMap[t.id] || [];
   el.innerHTML = `
     <div class="title"></div>
     <div class="meta">
@@ -356,6 +423,7 @@ function cardEl(t) {
     ${t.description ? `<div class="desc"></div>` : ""}
     ${handoverOf(t) ? `<div class="note"></div>` : ""}
     ${deliverablesOf(t).length ? `<div class="dlinks"></div>` : ""}
+    ${depIds.length || dependentIds.length ? `<div class="deps"></div>` : ""}
     ${junpeisTurn ? `<div class="card-actions">
       <button class="approve-btn">✓ 承認 → ${approveTarget}</button>
       <button class="reject-btn">${t.status === "REVIEW" ? "↩ 差し戻し" : "✎ コメント"}</button>
@@ -371,6 +439,21 @@ function cardEl(t) {
       a.addEventListener("click", (e) => e.stopPropagation());
       row.appendChild(a);
     });
+  }
+  if (depIds.length || dependentIds.length) {
+    const row = el.querySelector(".deps");
+    if (depIds.length) {
+      const label = document.createElement("span");
+      label.className = "deps-label"; label.textContent = "⛓ 依存先:";
+      row.appendChild(label);
+      depIds.forEach((id) => row.appendChild(depChip(id, "dep", false)));
+    }
+    if (dependentIds.length) {
+      const label = document.createElement("span");
+      label.className = "deps-label"; label.textContent = "🔗 依存元:";
+      row.appendChild(label);
+      dependentIds.forEach((id) => row.appendChild(depChip(id, "dependent", false)));
+    }
   }
   if (junpeisTurn) {
     el.querySelector(".approve-btn").addEventListener("click", (e) => { e.stopPropagation(); approveTask(t.id); });
@@ -435,8 +518,36 @@ function openModal(id, defaultStatus) {
   $("f_auto").checked = t ? !!t.auto : false;
   $("deleteBtn").style.display = id ? "block" : "none";
   $("copyLinkBtn").style.display = id ? "inline-block" : "none";
+  renderDepsField(t);
   $("overlay").classList.add("open");
   if (id) { history.replaceState(null, "", "#" + id); } // 共有リンク用。hashchangeは発火しないので再オープンループなし
+}
+// モーダル内の依存関係の読み取り専用表示を更新する。新規タスク(t=null)では非表示。
+function renderDepsField(t) {
+  const depIds = t ? dependsOn(t) : [];
+  const dependentIds = t ? (dependentsMap[t.id] || []) : [];
+  const view = $("depsView");
+  view.innerHTML = "";
+  if (!depIds.length && !dependentIds.length) { $("depsField").style.display = "none"; return; }
+  $("depsField").style.display = "block";
+  if (depIds.length) {
+    const row = document.createElement("div");
+    row.className = "deps";
+    const label = document.createElement("span");
+    label.className = "deps-label"; label.textContent = "⛓ 依存先(このタスクが待っている):";
+    row.appendChild(label);
+    depIds.forEach((id) => row.appendChild(depChip(id, "dep", true)));
+    view.appendChild(row);
+  }
+  if (dependentIds.length) {
+    const row = document.createElement("div");
+    row.className = "deps"; row.style.marginTop = "6px";
+    const label = document.createElement("span");
+    label.className = "deps-label"; label.textContent = "🔗 依存元(このタスクを待っている):";
+    row.appendChild(label);
+    dependentIds.forEach((id) => row.appendChild(depChip(id, "dependent", true)));
+    view.appendChild(row);
+  }
 }
 function closeModal() {
   $("overlay").classList.remove("open"); editingId = null;
