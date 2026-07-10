@@ -119,7 +119,10 @@
       <div class="hint">例: 設計ドキュメント: https://github.com/junchan614/ai-org/blob/main/board/xxx.md</div>
     </div>
     <div class="modal-actions">
-      <button class="danger" id="deleteBtn">削除</button>
+      <div>
+        <button class="danger" id="deleteBtn">削除</button>
+        <button id="copyLinkBtn" title="このタスクへの直接リンクをコピー">🔗 リンク</button>
+      </div>
       <div class="right">
         <button id="cancelBtn">キャンセル</button>
         <button class="primary" id="okBtn">保存</button>
@@ -394,9 +397,44 @@ function openModal(id, defaultStatus) {
   fillSelect($("f_priority"), priorityList().map((p) => ({ value: p, label: p })), t ? t.priority : "P1");
   $("f_auto").checked = t ? !!t.auto : false;
   $("deleteBtn").style.display = id ? "block" : "none";
+  $("copyLinkBtn").style.display = id ? "inline-block" : "none";
   $("overlay").classList.add("open");
+  if (id) { history.replaceState(null, "", "#" + id); } // 共有リンク用。hashchangeは発火しないので再オープンループなし
 }
-function closeModal() { $("overlay").classList.remove("open"); editingId = null; }
+function closeModal() {
+  $("overlay").classList.remove("open"); editingId = null;
+  if (location.hash) { history.replaceState(null, "", location.pathname + location.search); }
+}
+function copyModalLink() {
+  if (!editingId) { return; }
+  const url = location.href.split("#")[0] + "#" + editingId; // file:// では origin が信用できないため href を使う
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    navigator.clipboard.writeText(url)
+      .then(() => setStatus("🔗 リンクをコピーしました: " + url))
+      .catch(() => prompt("コピーできませんでした。手動でコピーしてください:", url));
+  } else {
+    prompt("このURLをコピーしてください:", url);
+  }
+}
+// URLハッシュ(#T67 等)からタスクを特定して直接開く。共有リンクの入口。
+function normalizeHashId(raw) {
+  if (!raw) { return null; }
+  let s = raw.replace(/^#/, "").trim().replace(/[\[\]]/g, "");
+  if (!s) { return null; }
+  if (/^\d+$/.test(s)) { s = "T" + s; }
+  return s.toUpperCase();
+}
+function openTaskFromHash() {
+  if (!board) { return; }
+  const id = normalizeHashId(location.hash);
+  if (!id) { return; }
+  const t = board.tasks.find((x) => x.id.toUpperCase() === id);
+  if (!t) { setStatus("リンク先のタスクが見つかりません: " + id); return; }
+  activeCol = t.status;
+  searchQuery = t.id; $("searchInput").value = t.id; localStorage.setItem(LS_SEARCH, t.id);
+  render();
+  openModal(t.id, t.status);
+}
 function saveModal() {
   const title = $("f_title").value.trim();
   if (!title) { $("f_title").focus(); return; }
@@ -469,14 +507,16 @@ $("settingsBtn").onclick = openCfg;
 $("okBtn").onclick = saveModal;
 $("cancelBtn").onclick = closeModal;
 $("deleteBtn").onclick = deleteTask;
+$("copyLinkBtn").onclick = copyModalLink;
 $("overlay").addEventListener("click", (e) => { if (e.target === $("overlay")) { closeModal(); } });
 $("cfgSaveBtn").onclick = saveCfg;
 $("cfgCancelBtn").onclick = closeCfg;
 $("cfgClearBtn").onclick = clearCfg;
 $("cfgOverlay").addEventListener("click", (e) => { if (e.target === $("cfgOverlay")) { closeCfg(); } });
+window.addEventListener("hashchange", openTaskFromHash);
 
-// 起動時: 設定済みなら自動ロード
-if (cfgReady(getCfg())) { loadBoard(); } else { openCfg(); }
+// 起動時: 設定済みなら自動ロード。#T67 等のリンクで開いた場合は読み込み後にそのタスクを直接開く
+if (cfgReady(getCfg())) { loadBoard().then(openTaskFromHash); } else { openCfg(); }
 </script>
 </body>
 </html>
