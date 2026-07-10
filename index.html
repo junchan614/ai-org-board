@@ -87,6 +87,8 @@
   </select>
   <button id="reloadBtn" title="最新を読み込む">↻</button>
   <button id="settingsBtn" title="接続設定">⚙</button>
+  <input id="searchInput" type="text" placeholder="🔍 検索 (例: T67)" title="ID・タイトル・本文・引き継ぎを検索"
+    style="background:var(--panel2); color:var(--text); border:1px solid var(--line); border-radius:8px; padding:9px 11px; font-size:14px; width:100%;">
   <span class="status" id="status">接続設定を開いてください</span>
 </header>
 
@@ -163,7 +165,9 @@ const $ = (id) => document.getElementById(id);
 const today = () => new Date().toISOString().slice(0, 10);
 const LS = "aiorg-board-cfg";
 const LS_FILTER = "aiorg-board-filter";
+const LS_SEARCH = "aiorg-board-search";
 let filterAssignee = localStorage.getItem(LS_FILTER) || ""; // "" = すべて
+let searchQuery = localStorage.getItem(LS_SEARCH) || ""; // "" = 検索なし
 
 function setStatus(m) { $("status").textContent = m; }
 
@@ -268,6 +272,18 @@ function linkify(text) {
   return esc.replace(/https?:\/\/[^\s<]+/g, (url) => `<a href="${url}" target="_blank" rel="noopener">${url}</a>`);
 }
 
+// [T67] / T67 / 67 いずれの入力でもID一致させ、なければタイトル・本文・引き継ぎを部分一致で見る
+function matchesSearch(t) {
+  const q = searchQuery.trim().toLowerCase().replace(/[\[\]]/g, "");
+  if (!q) { return true; }
+  if (t.id.toLowerCase() === q || t.id.toLowerCase() === "t" + q) { return true; }
+  if (t.id.toLowerCase().includes(q)) { return true; }
+  if ((t.title || "").toLowerCase().includes(q)) { return true; }
+  if ((t.description || "").toLowerCase().includes(q)) { return true; }
+  if (handoverOf(t).toLowerCase().includes(q)) { return true; }
+  return false;
+}
+
 function render() {
   $("emptyState").style.display = board ? "none" : "block";
   $("tabs").innerHTML = "";
@@ -278,7 +294,7 @@ function render() {
     (board.members || []).map((m) => ({ value: m.key, label: m.label }))), filterAssignee);
 
   board.columns.forEach((col) => {
-    const n = board.tasks.filter((t) => t.status === col && (!filterAssignee || t.assignee === filterAssignee)).length;
+    const n = board.tasks.filter((t) => t.status === col && (!filterAssignee || t.assignee === filterAssignee) && matchesSearch(t)).length;
     const tab = document.createElement("div");
     tab.className = "tab" + (col === activeCol ? " active" : "");
     tab.innerHTML = `${col} <span class="count">${n}</span>`;
@@ -286,7 +302,7 @@ function render() {
     $("tabs").appendChild(tab);
   });
 
-  const tasks = board.tasks.filter((t) => t.status === activeCol && (!filterAssignee || t.assignee === filterAssignee));
+  const tasks = board.tasks.filter((t) => t.status === activeCol && (!filterAssignee || t.assignee === filterAssignee) && matchesSearch(t));
   tasks.forEach((t) => $("colBody").appendChild(cardEl(t)));
 
   const addBtn = document.createElement("button");
@@ -442,6 +458,12 @@ $("filterSelect").onchange = (e) => {
   localStorage.setItem(LS_FILTER, filterAssignee);
   render();
 };
+$("searchInput").value = searchQuery;
+$("searchInput").addEventListener("input", (e) => {
+  searchQuery = e.target.value;
+  localStorage.setItem(LS_SEARCH, searchQuery);
+  render();
+});
 $("reloadBtn").onclick = loadBoard;
 $("settingsBtn").onclick = openCfg;
 $("okBtn").onclick = saveModal;
