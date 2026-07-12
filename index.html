@@ -8,7 +8,7 @@
   :root {
     --bg: #1e1f23; --panel: #2a2c32; --panel2: #32343b; --line: #3a3d45;
     --text: #e6e7ea; --muted: #9aa0ab; --accent: #6aa3ff; --human: #f0a85c; --ai: #6aa3ff;
-    --done: #57b87a; --blocked: #d96d6d;
+    --done: #57b87a; --blocked: #d96d6d; --form: #b98cf0;
     --p0: #d96d6d; --p1: #f0a85c; --p2: #9aa0ab;
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -59,6 +59,10 @@
   .dep-chip.missing { border-style: dashed; color: var(--muted); }
   #depsView .deps { margin-top: 0; }
   .card-actions { margin-top: 10px; display: flex; gap: 8px; }
+  .form-actions { margin-top: 10px; }
+  .form-btn { display: block; text-align: center; background: rgba(185,140,240,.16); color: var(--form);
+    border: 1px solid rgba(185,140,240,.5); border-radius: 8px; padding: 9px 10px;
+    font-weight: 600; text-decoration: none; }
   .approve-btn { flex: 1; background: rgba(87,184,122,.16); color: var(--done);
     border: 1px solid rgba(87,184,122,.5); border-radius: 8px; padding: 9px 10px; font-weight: 600; }
   .reject-btn { background: transparent; color: var(--muted); border: 1px solid var(--line);
@@ -124,6 +128,9 @@
     <div class="field"><label>引き継ぎ (handover_notes)</label><textarea id="f_handover" class="tall" placeholder="ここまでやった・次のアクション"></textarea></div>
     <div class="field"><label>成果物リンク (deliverables)</label><textarea id="f_deliverables" placeholder="1行に1つ。「ラベル: URL」または URL のみ"></textarea>
       <div class="hint">例: 設計ドキュメント: https://github.com/junchan614/ai-org/blob/main/board/xxx.md</div>
+    </div>
+    <div class="field"><label>Formsリンク (formUrl)</label><input id="f_formurl" type="text" placeholder="https://docs.google.com/forms/d/e/.../viewform">
+      <div class="hint">回答が必要なGoogleフォームがある間だけ入力。カードに「📝 Formsで回答する」ボタンが出る。回答済みなら空欄に戻す。</div>
     </div>
     <div class="field" id="depsField" style="display:none;">
       <label>依存関係（引き継ぎメモの「依存:T◯」から自動抽出。タップでそのタスクへ移動）</label>
@@ -437,6 +444,7 @@ function cardEl(t) {
     ${t.description ? `<div class="desc"></div>` : ""}
     ${handoverOf(t) ? `<div class="note"></div>` : ""}
     ${deliverablesOf(t).length ? `<div class="dlinks"></div>` : ""}
+    ${t.formUrl ? `<div class="form-actions"></div>` : ""}
     ${depIds.length || dependentIds.length ? `<div class="deps"></div>` : ""}
     ${junpeisTurn ? `<div class="card-actions">
       <button class="approve-btn">✓ 承認 → ${approveTarget}</button>
@@ -453,6 +461,14 @@ function cardEl(t) {
       a.addEventListener("click", (e) => e.stopPropagation());
       row.appendChild(a);
     });
+  }
+  if (t.formUrl) {
+    const row = el.querySelector(".form-actions");
+    const a = document.createElement("a");
+    a.href = t.formUrl; a.target = "_blank"; a.rel = "noopener";
+    a.className = "form-btn"; a.textContent = "📝 Formsで回答する";
+    a.addEventListener("click", (e) => e.stopPropagation());
+    row.appendChild(a);
   }
   if (depIds.length || dependentIds.length) {
     const row = el.querySelector(".deps");
@@ -526,6 +542,7 @@ function openModal(id, defaultStatus) {
   $("f_desc").value = t ? (t.description || "") : "";
   $("f_handover").value = t ? handoverOf(t) : "";
   $("f_deliverables").value = t ? deliverablesToText(deliverablesOf(t)) : "";
+  $("f_formurl").value = t ? (t.formUrl || "") : "";
   fillSelect($("f_status"), board.columns.map((c) => ({ value: c, label: c })), t ? t.status : defaultStatus);
   fillSelect($("f_assignee"), (board.members || []).map((m) => ({ value: m.key, label: m.label })), t ? t.assignee : "-");
   fillSelect($("f_priority"), priorityList().map((p) => ({ value: p, label: p })), t ? t.priority : "P1");
@@ -606,6 +623,8 @@ function saveModal() {
     t.priority = $("f_priority").value; t.description = $("f_desc").value.trim();
     t.handover_notes = $("f_handover").value.trim(); delete t.note;
     t.deliverables = textToDeliverables($("f_deliverables").value);
+    const formUrl = $("f_formurl").value.trim();
+    if (formUrl) { t.formUrl = formUrl; } else { delete t.formUrl; }
     t.auto = $("f_auto").checked;
     t.updatedBy = "Junpei"; t.updatedAt = today();
     activeCol = t.status;
@@ -613,9 +632,11 @@ function saveModal() {
     const id = "T" + (board.nextId || (board.tasks.length + 1));
     board.nextId = (board.nextId || board.tasks.length + 1) + 1;
     const st = $("f_status").value;
+    const formUrl = $("f_formurl").value.trim();
     board.tasks.push({ id, title, status: st, assignee: $("f_assignee").value,
       priority: $("f_priority").value, description: $("f_desc").value.trim(),
       handover_notes: $("f_handover").value.trim(), deliverables: textToDeliverables($("f_deliverables").value),
+      ...(formUrl ? { formUrl } : {}),
       auto: $("f_auto").checked,
       updatedBy: "Junpei", updatedAt: today() });
     activeCol = st;
