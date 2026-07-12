@@ -265,9 +265,23 @@ function priorityList() { return board.priorities || ["P0", "P1", "P2"]; }
 function handoverOf(t) { return t.handover_notes != null ? t.handover_notes : (t.note || ""); }
 
 // --- deliverables (成果物リンク) ---
+// url が http(s) でない場合は「リポジトリ内の相対パスの書き間違い」とみなし、
+// GitHub blob URL に自動変換する（相対パスのまま登録されるとブラウザが file:// 起点で
+// 解決しようとして ERR_FILE_NOT_FOUND になる不具合の再発防止。2026-07-13, T57）。
+function normalizeDeliverableUrl(url) {
+  if (!url || /^https?:\/\//.test(url)) { return url; }
+  const c = getCfg();
+  const owner = (c && c.owner) || "junchan614";
+  const repo = (c && c.repo) || "ai-org";
+  const branch = (c && c.branch) || "main";
+  const cleanPath = url.replace(/^\.?\//, "");
+  const encodedPath = cleanPath.split("/").map(encodeURIComponent).join("/");
+  return `https://github.com/${owner}/${repo}/blob/${branch}/${encodedPath}`;
+}
 function deliverablesOf(t) {
   return (t.deliverables || []).map((d) => (typeof d === "string" ? { label: d, url: d } : d))
-    .filter((d) => d && d.url);
+    .filter((d) => d && d.url)
+    .map((d) => ({ ...d, url: normalizeDeliverableUrl(d.url) }));
 }
 function deliverablesToText(list) {
   return (list || []).map((d) => (d.label && d.label !== d.url ? `${d.label}: ${d.url}` : d.url)).join("\n");
